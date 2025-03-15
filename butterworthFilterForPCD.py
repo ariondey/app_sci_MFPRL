@@ -9,11 +9,11 @@ from datetime import datetime
 import re
 
 # Define constants
-LOW_FREQ_BANDS = {'delta': (0.1, 0.5), 'theta': (0.5, 3)}
-HIGH_FREQ_BANDS = {'beta': (3, 12), 'gamma': (12, 30)}
+FREQ_BANDS = {'LF': (0, 0.3), 'MF': (0.3, 1), 'HF': (1, 3)}
 SAMPLING_RATE = 100  # Hz (from the data file, data_rate is 100Hz)
-BASE_PATH = r"C:\Users\ari\Documents\School Documents\MFPRL\MFPRL_PCD-Decomposition\PCD_SOT_data"
-OUTPUT_PATH = r"C:\Users\ari\Documents\School Documents\MFPRL\app_sci_MFPRL"
+BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\MFPRL_PCD-Decomposition\PCD_SOT_data"
+OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
+
 # Helper function: Butterworth low-pass filter
 def butter_lowpass_filter(data, cutoff, fs, order=2):
     b, a = butter(order, cutoff / (0.5 * fs), btype='low')
@@ -95,8 +95,8 @@ def process_excel_file(file_path, sampling_rate=100):
         _, psd_trembling_x = compute_psd(trembling_x, sampling_rate)
         
         # Integrate power using defined bands
-        rambling_x_power = integrate_power(freq, psd_rambling_x, LOW_FREQ_BANDS)
-        trembling_x_power = integrate_power(freq, psd_trembling_x, HIGH_FREQ_BANDS)
+        rambling_x_power = integrate_power(freq, psd_rambling_x, FREQ_BANDS)
+        trembling_x_power = integrate_power(freq, psd_trembling_x, FREQ_BANDS)
         
         # Build the time series dictionary and add integrated power for each band.
         time_series = {
@@ -111,11 +111,11 @@ def process_excel_file(file_path, sampling_rate=100):
             'psd_trembling_x': psd_trembling_x
         }
         
-        for band in LOW_FREQ_BANDS:
+        for band in FREQ_BANDS:
             col_key = f'Rambling_X_{band}_Power'
             time_series[col_key] = rambling_x_power.get(band, 0)
             
-        for band in HIGH_FREQ_BANDS:
+        for band in FREQ_BANDS:
             col_key = f'Trembling_X_{band}_Power'
             time_series[col_key] = trembling_x_power.get(band, 0)
         
@@ -190,13 +190,12 @@ def analyze_all_subjects(base_path, sampling_rate):
                             'Path_Length': path_length
                         }
                         
-                        # Add integrated power columns from LOW_FREQ_BANDS
-                        for band in LOW_FREQ_BANDS:
+                        # Add integrated power columns from FREQ_BANDS
+                        for band in FREQ_BANDS:
                             key = f'Rambling_X_{band}_Power'
                             result[key] = trial_data.get(key, 0)
                         
-                        # Add integrated power columns from HIGH_FREQ_BANDS
-                        for band in HIGH_FREQ_BANDS:
+                        for band in FREQ_BANDS:
                             key = f'Trembling_X_{band}_Power'
                             result[key] = trial_data.get(key, 0)
                         
@@ -224,7 +223,7 @@ def save_results_to_excel(results, raw_data_collection, output_path):
             pivot_path_length.to_excel(writer, sheet_name='Pivot_PathLength')
             
             # Create pivot tables for each frequency band if the column exists
-            for band in LOW_FREQ_BANDS:
+            for band in FREQ_BANDS:
                 col_name = f'Rambling_X_{band}_Power'
                 if col_name in results_df.columns:
                     pivot_rambling_x = results_df.pivot_table(
@@ -234,7 +233,7 @@ def save_results_to_excel(results, raw_data_collection, output_path):
                     )
                     pivot_rambling_x.to_excel(writer, sheet_name=f'Pivot_Rambling_X_{band}')
             
-            for band in HIGH_FREQ_BANDS:
+            for band in FREQ_BANDS:
                 col_name = f'Trembling_X_{band}_Power'
                 if col_name in results_df.columns:
                     pivot_trembling_x = results_df.pivot_table(
@@ -304,7 +303,7 @@ def visualize_subject_results(results_df, subject_id):
     axes[0].grid(True)
     
     # Plot 2: Rambling Power (X-axis)
-    for band in LOW_FREQ_BANDS:
+    for band in FREQ_BANDS:
         subject_data.pivot(index='Trial', columns='Condition', values=f'Rambling_X_{band}_Power').plot(
             ax=axes[1], marker='o', label=f'X-{band}'
         )
@@ -314,7 +313,7 @@ def visualize_subject_results(results_df, subject_id):
     axes[1].legend()
     
     # Plot 3: Trembling Power (X-axis)
-    for band in HIGH_FREQ_BANDS:
+    for band in FREQ_BANDS:
         subject_data.pivot(index='Trial', columns='Condition', values=f'Trembling_X_{band}_Power').plot(
             ax=axes[2], marker='o', label=f'X-{band}'
         )
@@ -327,7 +326,7 @@ def visualize_subject_results(results_df, subject_id):
     plt.tight_layout()
     
     # Save the figure (commented out because it makes an image for every subject)
-    #output_file = os.path.join(OUTPUT_PATH, f"subject_{subject_id}_results.png")
+    output_file = os.path.join(OUTPUT_PATH, f"subject_{subject_id}_results.png")
     plt.savefig(output_file, dpi=300)
     plt.close()
     print(f"Visualization saved to {output_file}")
