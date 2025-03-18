@@ -39,18 +39,17 @@ def compute_rambling_trembling(cop_signal, sampling_rate=100):
 def process_csv_file(file_path, sampling_rate=100):
     try:
         filename = os.path.basename(file_path)
-        pattern = r".*__(\d+)__(\d+)__(\d+)__.*\.csv"
+        pattern = r"(\d+)__(\w+)__(\d+)__(\d+)__(\d+)__.*\.csv"
         match = re.match(pattern, filename)
         if not match:
             print(f"Filename '{filename}' does not match pattern.")
             return None
 
         trial_global_num = int(match.group(1))
-        subject_num = int(match.group(2))
-        condition_num = int(match.group(3))
-
-        # Swap the values as per the requirement
-        subject_num, condition_num, trial_global_num = condition_num, trial_global_num, subject_num
+        study = match.group(2)
+        subject_num = int(match.group(3))
+        condition_num = int(match.group(4))
+        trial_in_condition_num = int(match.group(5))
 
         df_raw = pd.read_csv(file_path)
 
@@ -71,9 +70,10 @@ def process_csv_file(file_path, sampling_rate=100):
         trembling_power_x_bands = integrate_power(freq_trembling_x, psd_trembling_x, FREQ_BANDS)
 
         result_data = {
-            "Subject_ID": condition_num,
-            "Condition": trial_global_num,
-            "Trial": subject_num,
+            "Subject_ID": subject_num,
+            "Condition": condition_num,
+            "Trial": trial_in_condition_num,
+            "Study": study,
             "Path_Length": np.sum(np.sqrt(np.diff(cop_x_combined)**2 + np.diff(cop_y_combined)**2)),
             **{f'Rambling_X_{band}_Power': val for band, val in rambling_power_x_bands.items()},
             **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()}
