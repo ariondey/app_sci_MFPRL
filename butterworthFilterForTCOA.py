@@ -31,7 +31,8 @@ def integrate_power(freq, power_density, bands):
         integrated_power[band_name] = trapezoid(power_density[band_mask], freq[band_mask]) if np.any(band_mask) else 0
     return integrated_power
 
-def compute_rambling_trembling(cop_signal, sampling_rate=100):
+def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
+    # Use force_signal in the computation if needed
     rambling = butter_lowpass_filter(cop_signal, cutoff=2.0, fs=sampling_rate)
     trembling = cop_signal - rambling
     return rambling, trembling
@@ -43,7 +44,7 @@ def process_csv_file(file_path, sampling_rate=100):
         match = re.match(pattern, filename)
         if not match:
             print(f"Filename '{filename}' does not match pattern.")
-            return None
+            return None, None
 
         trial_global_num = int(match.group(1))
         study = match.group(2)
@@ -53,21 +54,52 @@ def process_csv_file(file_path, sampling_rate=100):
 
         df_raw = pd.read_csv(file_path)
 
+        # Extract COP data
         cop_x_left = pd.to_numeric(df_raw['L.COFx'], errors='coerce').interpolate().values
         cop_y_left = pd.to_numeric(df_raw['L.COFy'], errors='coerce').interpolate().values
         cop_x_right = pd.to_numeric(df_raw['R.COFx'], errors='coerce').interpolate().values
         cop_y_right = pd.to_numeric(df_raw['R.COFy'], errors='coerce').interpolate().values
 
+        # Extract force data
+        force_x_left = pd.to_numeric(df_raw['L.Fx'], errors='coerce').ffill().bfill().values
+        force_y_left = pd.to_numeric(df_raw['L.Fy'], errors='coerce').ffill().bfill().values
+        force_x_right = pd.to_numeric(df_raw['R.Fx'], errors='coerce').ffill().bfill().values
+        force_y_right = pd.to_numeric(df_raw['R.Fy'], errors='coerce').ffill().bfill().values
+
+        # Compute rambling and trembling components for each direction
+        rambling_x_left, trembling_x_left = compute_rambling_trembling(cop_x_left, force_x_left, sampling_rate)
+        rambling_y_left, trembling_y_left = compute_rambling_trembling(cop_y_left, force_y_left, sampling_rate)
+        rambling_x_right, trembling_x_right = compute_rambling_trembling(cop_x_right, force_x_right, sampling_rate)
+        rambling_y_right, trembling_y_right = compute_rambling_trembling(cop_y_right, force_y_right, sampling_rate)
+
+        # Combine left and right data (average them)
         cop_x_combined = np.nanmean([cop_x_left, cop_x_right], axis=0)
         cop_y_combined = np.nanmean([cop_y_left, cop_y_right], axis=0)
+        rambling_x_combined = np.nanmean([rambling_x_left, rambling_x_right], axis=0)
+        rambling_y_combined = np.nanmean([rambling_y_left, rambling_y_right], axis=0)
+        trembling_x_combined = np.nanmean([trembling_x_left, trembling_x_right], axis=0)
+        trembling_y_combined = np.nanmean([trembling_y_left, trembling_y_right], axis=0)
 
-        rambling_x, trembling_x = compute_rambling_trembling(cop_x_combined, sampling_rate)
-
-        freq_rambling_x, psd_rambling_x = compute_psd(rambling_x, sampling_rate)
-        freq_trembling_x, psd_trembling_x = compute_psd(trembling_x, sampling_rate)
+        # Compute PSD and integrated power for the X-axis signals
+        freq_rambling_x, psd_rambling_x = compute_psd(rambling_x_combined, sampling_rate)
+        freq_trembling_x, psd_trembling_x = compute_psd(trembling_x_combined, sampling_rate)
 
         rambling_power_x_bands = integrate_power(freq_rambling_x, psd_rambling_x, FREQ_BANDS)
         trembling_power_x_bands = integrate_power(freq_trembling_x, psd_trembling_x, FREQ_BANDS)
+
+        # Compute PSD and integrated power for the Y-axis signals
+        freq_rambling_y, psd_rambling_y = compute_psd(rambling_y_combined, sampling_rate)
+        freq_trembling_y, psd_trembling_y = compute_psd(trembling_y_combined, sampling_rate)
+
+        rambling_power_y_bands = integrate_power(freq_rambling_y, psd_rambling_y, FREQ_BANDS)
+        trembling_power_y_bands = integrate_power(freq_trembling_y, psd_trembling_y, FREQ_BANDS)
+
+        # Compute PSD and integrated power for the combined COPx and COPy signals
+        freq_cop_x, psd_cop_x = compute_psd(cop_x_combined, sampling_rate)
+        freq_cop_y, psd_cop_y = compute_psd(cop_y_combined, sampling_rate)
+
+        cop_x_power_bands = integrate_power(freq_cop_x, psd_cop_x, FREQ_BANDS)
+        cop_y_power_bands = integrate_power(freq_cop_y, psd_cop_y, FREQ_BANDS)
 
         result_data = {
             "Subject_ID": subject_num,
@@ -76,33 +108,47 @@ def process_csv_file(file_path, sampling_rate=100):
             "Study": study,
             "Path_Length": np.sum(np.sqrt(np.diff(cop_x_combined)**2 + np.diff(cop_y_combined)**2)),
             **{f'Rambling_X_{band}_Power': val for band, val in rambling_power_x_bands.items()},
-            **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()}
+            **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()},
+            **{f'Rambling_Y_{band}_Power': val for band, val in rambling_power_y_bands.items()},
+            **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()}
         }
 
-        return result_data
+        cop_power_summary = {
+            "Subject_ID": subject_num,
+            "Condition": condition_num,
+            "Trial": trial_in_condition_num,
+            "Study": study,
+            **{f'COP_X_{band}_Power': val for band, val in cop_x_power_bands.items()},
+            **{f'COP_Y_{band}_Power': val for band, val in cop_y_power_bands.items()}
+        }
+
+        return result_data, cop_power_summary
 
     except Exception as e:
         print(f"Error processing {file_path}: {e}")
-        return None
+        return None, None
 
 def analyze_all_subjects(base_path):
     results_list = []
+    cop_power_summary_list = []
     base_path_abs = os.path.abspath(base_path)
     
     for root_dirpath, _, filenames in os.walk(base_path_abs):
         for file in filenames:
             if file.endswith('.csv'):
                 full_file_path = os.path.join(root_dirpath, file)
-                processed_trial_data = process_csv_file(full_file_path)
+                processed_trial_data, cop_power_summary = process_csv_file(full_file_path)
                 if processed_trial_data is not None:
                     results_list.append(processed_trial_data)
+                if cop_power_summary is not None:
+                    cop_power_summary_list.append(cop_power_summary)
 
-    return pd.DataFrame(results_list)
+    return pd.DataFrame(results_list), pd.DataFrame(cop_power_summary_list)
 
 if __name__ == "__main__":
     print("Starting analysis...")
     
-    results_df = analyze_all_subjects(BASE_PATH)
+    results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
 
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -114,3 +160,14 @@ if __name__ == "__main__":
         
     else:
         print("Analysis completed but no data was processed.")
+
+    if not cop_power_summary_df.empty:
+        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        cop_power_summary_file_path = os.path.join(OUTPUT_PATH, f'TCOA_cop_power_summary_{timestamp_str}.xlsx')
+        
+        cop_power_summary_df.to_excel(cop_power_summary_file_path, index=False)
+        
+        print(f"COP power summary saved to {cop_power_summary_file_path}.")
+        
+    else:
+        print("No COP power summary data was processed.")
