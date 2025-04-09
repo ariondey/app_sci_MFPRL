@@ -170,12 +170,41 @@ def export_cop_frequency_power_summary(results, output_dir="./cop_frequency_powe
     
     summary_df = pd.DataFrame(summary_list)
     
+def export_rambling_trembling_stats(results_df, output_path):
+    """
+    Compute mean and standard deviation for trembling and rambling integrated power columns
+    and save the stats to an Excel file.
+    """
+    if results_df.empty:
+        print("No results available to compute stats.")
+        return
+
+    # Collect columns for integrated power of rambling and trembling (X-axis)
+    stats_data = {}
+    for band in FREQ_BANDS:  # e.g., 'LF', 'MF', 'HF'
+        rambling_col = f'Rambling_X_{band}_Power'
+        trembling_col = f'Trembling_X_{band}_Power'
+        
+        # Compute overall mean and std for the column (across all trials)
+        stats_data[rambling_col + '_mean'] = [results_df[rambling_col].mean()]
+        stats_data[rambling_col + '_std'] = [results_df[rambling_col].std()]
+        stats_data[trembling_col + '_mean'] = [results_df[trembling_col].mean()]
+        stats_data[trembling_col + '_std'] = [results_df[trembling_col].std()]
+    
+    stats_df = pd.DataFrame(stats_data)
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(output_path, f'rambling_trembling_stats_{timestamp_str}.xlsx')
+    stats_df.to_excel(output_file, index=False)
+    print(f"Rambling/Trembling stats saved to {output_file}")
+
+
+
 
 if __name__ == "__main__":
     print("Starting analysis...")
     
     results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
-
+    
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_{timestamp_str}.xlsx')
@@ -184,19 +213,20 @@ if __name__ == "__main__":
         
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
         
+        # Export mean/SD of trembling and rambling integrated power
+        export_rambling_trembling_stats(results_df, OUTPUT_PATH)
+        
     else:
         print("Analysis completed but no data was processed.")
 
     if not cop_power_summary_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         cop_power_summary_file_path = os.path.join(OUTPUT_PATH, f'PCD_cop_power_summary_{timestamp_str}.xlsx')
-        
         cop_power_summary_df.to_excel(cop_power_summary_file_path, index=False)
-        
         print(f"COP power summary saved to {cop_power_summary_file_path}.")
         
         # Export COP frequency power summary to a separate Excel file
         export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), OUTPUT_PATH)
         
     else:
-        print("No COP power summary data was processed.")
+        print("No COP power summary data was processed.")    
