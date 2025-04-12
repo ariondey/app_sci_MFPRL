@@ -110,7 +110,11 @@ def process_csv_file(file_path, sampling_rate=100):
             **{f'Rambling_X_{band}_Power': val for band, val in rambling_power_x_bands.items()},
             **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()},
             **{f'Rambling_Y_{band}_Power': val for band, val in rambling_power_y_bands.items()},
-            **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()}
+            **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()},
+            "Rambling_X": np.mean(rambling_x_combined),
+            "Trembling_X": np.mean(trembling_x_combined),
+            "Rambling_Y": np.mean(rambling_y_combined),
+            "Trembling_Y": np.mean(trembling_y_combined)
         }
 
         cop_power_summary = {
@@ -145,6 +149,35 @@ def analyze_all_subjects(base_path):
 
     return pd.DataFrame(results_list), pd.DataFrame(cop_power_summary_list)
 
+def compute_mean_sd_trembling_rambling(results_df):
+    """Compute the mean and standard deviation of trembling and rambling components."""
+    mean_sd_data = {
+        "Component": [],
+        "Direction": [],
+        "Mean": [],
+        "Standard_Deviation": []
+    }
+
+    for component in ["Rambling", "Trembling"]:
+        for direction in ["X", "Y"]:
+            column_name = f"{component}_{direction}"
+            if column_name in results_df.columns:
+                mean_sd_data["Component"].append(component)
+                mean_sd_data["Direction"].append(direction)
+                mean_sd_data["Mean"].append(results_df[column_name].mean())
+                mean_sd_data["Standard_Deviation"].append(results_df[column_name].std())
+
+    return pd.DataFrame(mean_sd_data)
+
+def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
+    """Export the mean and standard deviation of trembling and rambling components to an Excel file."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_file = os.path.join(output_dir, "TCOA_mean_sd_trembling_rambling.xlsx")
+    mean_sd_df.to_excel(output_file, index=False)
+    print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
+
+
 if __name__ == "__main__":
     print("Starting analysis...")
     
@@ -157,6 +190,10 @@ if __name__ == "__main__":
         results_df.to_excel(output_file_path, index=False)
         
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
+        
+        # Compute and export mean/SD of trembling and rambling components
+        mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
+        export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
         
     else:
         print("Analysis completed but no data was processed.")
