@@ -169,6 +169,35 @@ def compute_mean_sd_trembling_rambling(results_df):
 
     return pd.DataFrame(mean_sd_data)
 
+def compute_mean_sd_trembling_rambling_by_cohort(results_df):
+    """Compute the mean and standard deviation of trembling and rambling components, separated by cohort."""
+    mean_sd_data = {
+        "Cohort": [],
+        "Component": [],
+        "Direction": [],
+        "Mean": [],
+        "Standard_Deviation": []
+    }
+
+    # Define cohorts based on Subject_ID
+    results_df["Cohort"] = results_df["Subject_ID"].apply(
+        lambda x: "100s" if 100 <= x < 200 else "200s" if 200 <= x < 300 else "400s" if 400 <= x < 500 else "Other"
+    )
+
+    for cohort in ["100s", "200s", "400s"]:
+        cohort_df = results_df[results_df["Cohort"] == cohort]
+        for component in ["Rambling", "Trembling"]:
+            for direction in ["X", "Y"]:
+                column_name = f"{component}_{direction}"
+                if column_name in cohort_df.columns:
+                    mean_sd_data["Cohort"].append(cohort)
+                    mean_sd_data["Component"].append(component)
+                    mean_sd_data["Direction"].append(direction)
+                    mean_sd_data["Mean"].append(cohort_df[column_name].mean())
+                    mean_sd_data["Standard_Deviation"].append(cohort_df[column_name].std())
+
+    return pd.DataFrame(mean_sd_data)
+
 def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
     """Export the mean and standard deviation of trembling and rambling components to an Excel file."""
     if not os.path.exists(output_dir):
@@ -177,6 +206,13 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
 
+def export_mean_sd_by_cohort_to_excel(mean_sd_df, output_dir="./mean_sd_summary_by_cohort"):
+    """Export the mean and standard deviation of trembling and rambling components by cohort to an Excel file."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_file = os.path.join(output_dir, "TCOA_mean_sd_trembling_rambling_by_cohort.xlsx")
+    mean_sd_df.to_excel(output_file, index=False)
+    print(f"Mean/SD of trembling and rambling components by cohort exported to: {output_file}")
 
 if __name__ == "__main__":
     print("Starting analysis...")
@@ -194,6 +230,10 @@ if __name__ == "__main__":
         # Compute and export mean/SD of trembling and rambling components
         mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
         export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
+        
+        # Compute and export mean/SD of trembling and rambling components by cohort
+        mean_sd_by_cohort_df = compute_mean_sd_trembling_rambling_by_cohort(results_df)
+        export_mean_sd_by_cohort_to_excel(mean_sd_by_cohort_df, OUTPUT_PATH)
         
     else:
         print("Analysis completed but no data was processed.")
