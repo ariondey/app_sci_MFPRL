@@ -175,22 +175,31 @@ def export_cop_frequency_power_summary(results, output_dir="./cop_frequency_powe
     summary_df = pd.DataFrame(summary_list)
 
 def compute_mean_sd_trembling_rambling(results_df):
-    """Compute the mean and standard deviation of trembling and rambling components."""
+    """Compute the mean and standard deviation of trembling and rambling components, separated by cohort."""
     mean_sd_data = {
+        "Cohort": [],
         "Component": [],
         "Direction": [],
         "Mean": [],
-        "Standard_Deviation": []
+        "Standard_Deviation": [],
+        "Participants": []  # Add column for number of participants
     }
 
-    for component in ["Rambling", "Trembling"]:
-        for direction in ["X", "Y"]:
-            column_name = f"{component}_{direction}"
-            if column_name in results_df.columns:
-                mean_sd_data["Component"].append(component)
-                mean_sd_data["Direction"].append(direction)
-                mean_sd_data["Mean"].append(results_df[column_name].mean())
-                mean_sd_data["Standard_Deviation"].append(results_df[column_name].std())
+    # Determine cohorts based on Subject_ID
+    results_df['Cohort'] = results_df['Subject_ID'].apply(lambda x: f"{x // 100 * 100}s")
+
+    for cohort, cohort_df in results_df.groupby('Cohort'):
+        participant_count = cohort_df['Subject_ID'].nunique()  # Count unique participants
+        for component in ["Rambling", "Trembling"]:
+            for direction in ["X", "Y"]:
+                column_name = f"{component}_{direction}"
+                if column_name in cohort_df.columns:
+                    mean_sd_data["Cohort"].append(cohort)
+                    mean_sd_data["Component"].append(component)
+                    mean_sd_data["Direction"].append(direction)
+                    mean_sd_data["Mean"].append(cohort_df[column_name].mean())
+                    mean_sd_data["Standard_Deviation"].append(cohort_df[column_name].std())
+                    mean_sd_data["Participants"].append(participant_count)  # Add participant count
 
     return pd.DataFrame(mean_sd_data)
 

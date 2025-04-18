@@ -176,7 +176,8 @@ def compute_mean_sd_trembling_rambling_by_cohort(results_df):
         "Component": [],
         "Direction": [],
         "Mean": [],
-        "Standard_Deviation": []
+        "Standard_Deviation": [],
+        "Participants": []  # Add a column for the number of participants
     }
 
     # Define cohorts based on Subject_ID
@@ -186,6 +187,7 @@ def compute_mean_sd_trembling_rambling_by_cohort(results_df):
 
     for cohort in ["100s", "200s", "400s"]:
         cohort_df = results_df[results_df["Cohort"] == cohort]
+        num_participants = cohort_df["Subject_ID"].nunique()  # Count unique participants in the cohort
         for component in ["Rambling", "Trembling"]:
             for direction in ["X", "Y"]:
                 column_name = f"{component}_{direction}"
@@ -195,6 +197,7 @@ def compute_mean_sd_trembling_rambling_by_cohort(results_df):
                     mean_sd_data["Direction"].append(direction)
                     mean_sd_data["Mean"].append(cohort_df[column_name].mean())
                     mean_sd_data["Standard_Deviation"].append(cohort_df[column_name].std())
+                    mean_sd_data["Participants"].append(num_participants)  # Add the participant count
 
     return pd.DataFrame(mean_sd_data)
 
