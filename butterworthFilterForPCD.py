@@ -6,6 +6,7 @@ from scipy.signal import butter, filtfilt
 from scipy.fft import fft, fftfreq
 from scipy.integrate import trapezoid
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL\PCD_SOT_data"
 OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
@@ -197,8 +198,26 @@ def export_rambling_trembling_stats(results_df, output_path):
     stats_df.to_excel(output_file, index=False)
     print(f"Rambling/Trembling stats saved to {output_file}")
 
+def plot_time_series(cop, rambling, trembling, sample_rate=100, duration=5):
+    """
+    Plots the time series of COP, rambling, and trembling signals for a given duration (in seconds).
+    """
+    t = np.arange(len(cop)) / sample_rate
+    max_samples = int(duration * sample_rate)
+    
+    plt.figure(figsize=(12, 6))
+    plt.plot(t[:max_samples], cop[:max_samples], label='COP')
+    plt.plot(t[:max_samples], rambling[:max_samples], label='Rambling')
+    plt.plot(t[:max_samples], trembling[:max_samples], label='Trembling')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Signal')
+    plt.title('Time Series Signals (First {} seconds)'.format(duration))
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
-
+# Example use (assuming you have vectors: cop_x_combined, rambling_x_combined, trembling_x_combined)
+# plot_time_series(cop_x_combined, rambling_x_combined, trembling_x_combined, sample_rate=SAMPLING_RATE)
 
 if __name__ == "__main__":
     print("Starting analysis...")
@@ -229,4 +248,4 @@ if __name__ == "__main__":
         export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), OUTPUT_PATH)
         
     else:
-        print("No COP power summary data was processed.")    
+        print("No COP power summary data was processed.")
