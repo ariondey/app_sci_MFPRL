@@ -111,7 +111,11 @@ def process_csv_file(file_path, sampling_rate=100):
             **{f'Rambling_X_{band}_Power': val for band, val in rambling_power_x_bands.items()},
             **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()},
             **{f'Rambling_Y_{band}_Power': val for band, val in rambling_power_y_bands.items()},
-            **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()}
+            **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()},
+            "Rambling_X": rambling_x_combined.mean(),
+            "Rambling_Y": rambling_y_combined.mean(),
+            "Trembling_X": trembling_x_combined.mean(),
+            "Trembling_Y": trembling_y_combined.mean()
         }
 
         cop_power_summary = {
@@ -170,54 +174,43 @@ def export_cop_frequency_power_summary(results, output_dir="./cop_frequency_powe
         summary_list.append(summary)
     
     summary_df = pd.DataFrame(summary_list)
-    
-def export_rambling_trembling_stats(results_df, output_path):
-    """
-    Compute mean and standard deviation for trembling and rambling integrated power columns
-    and save the stats to an Excel file.
-    """
-    if results_df.empty:
-        print("No results available to compute stats.")
-        return
 
-    # Collect columns for integrated power of rambling and trembling (X-axis)
-    stats_data = {}
-    for band in FREQ_BANDS:  # e.g., 'LF', 'MF', 'HF'
-        rambling_col = f'Rambling_X_{band}_Power'
-        trembling_col = f'Trembling_X_{band}_Power'
-        
-        # Compute overall mean and std for the column (across all trials)
-        stats_data[rambling_col + '_mean'] = [results_df[rambling_col].mean()]
-        stats_data[rambling_col + '_std'] = [results_df[rambling_col].std()]
-        stats_data[trembling_col + '_mean'] = [results_df[trembling_col].mean()]
-        stats_data[trembling_col + '_std'] = [results_df[trembling_col].std()]
-    
-    stats_df = pd.DataFrame(stats_data)
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_path, f'rambling_trembling_stats_{timestamp_str}.xlsx')
-    stats_df.to_excel(output_file, index=False)
-    print(f"Rambling/Trembling stats saved to {output_file}")
+def compute_mean_sd_trembling_rambling(results_df):
+    """Compute the mean and standard deviation of trembling and rambling components, separated by cohort."""
+    mean_sd_data = {
+        "Cohort": [],
+        "Component": [],
+        "Direction": [],
+        "Mean": [],
+        "Standard_Deviation": [],
+        "Participants": []  # Add column for number of participants
+    }
 
-def plot_time_series(cop, rambling, trembling, sample_rate=100, duration=5):
-    """
-    Plots the time series of COP, rambling, and trembling signals for a given duration (in seconds).
-    """
-    t = np.arange(len(cop)) / sample_rate
-    max_samples = int(duration * sample_rate)
-    
-    plt.figure(figsize=(12, 6))
-    plt.plot(t[:max_samples], cop[:max_samples], label='COP')
-    plt.plot(t[:max_samples], rambling[:max_samples], label='Rambling')
-    plt.plot(t[:max_samples], trembling[:max_samples], label='Trembling')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Signal')
-    plt.title('Time Series Signals (First {} seconds)'.format(duration))
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    # Determine cohorts based on Subject_ID
+    results_df['Cohort'] = results_df['Subject_ID'].apply(lambda x: f"{x // 100 * 100}s")
 
-# Example use (assuming you have vectors: cop_x_combined, rambling_x_combined, trembling_x_combined)
-# plot_time_series(cop_x_combined, rambling_x_combined, trembling_x_combined, sample_rate=SAMPLING_RATE)
+    for cohort, cohort_df in results_df.groupby('Cohort'):
+        participant_count = cohort_df['Subject_ID'].nunique()  # Count unique participants
+        for component in ["Rambling", "Trembling"]:
+            for direction in ["X", "Y"]:
+                column_name = f"{component}_{direction}"
+                if column_name in cohort_df.columns:
+                    mean_sd_data["Cohort"].append(cohort)
+                    mean_sd_data["Component"].append(component)
+                    mean_sd_data["Direction"].append(direction)
+                    mean_sd_data["Mean"].append(cohort_df[column_name].mean())
+                    mean_sd_data["Standard_Deviation"].append(cohort_df[column_name].std())
+                    mean_sd_data["Participants"].append(participant_count)  # Add participant count
+
+    return pd.DataFrame(mean_sd_data)
+
+def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
+    """Export the mean and standard deviation of trembling and rambling components to an Excel file."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_file = os.path.join(output_dir, "PCD_mean_sd_trembling_rambling.xlsx")
+    mean_sd_df.to_excel(output_file, index=False)
+    print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
 
 if __name__ == "__main__":
     print("Starting analysis...")
@@ -231,6 +224,10 @@ if __name__ == "__main__":
         results_df.to_excel(output_file_path, index=False)
         
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
+        
+        # Compute and export mean/SD of trembling and rambling
+        mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
+        export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
         
         # Export mean/SD of trembling and rambling integrated power
         export_rambling_trembling_stats(results_df, OUTPUT_PATH)
