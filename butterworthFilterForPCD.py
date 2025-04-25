@@ -261,7 +261,7 @@ if __name__ == "__main__":
     print("Starting analysis...")
     
     results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
-
+    
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_{timestamp_str}.xlsx')
@@ -274,15 +274,16 @@ if __name__ == "__main__":
         mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
         export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
         
+        # Export mean/SD of trembling and rambling integrated power
+        export_rambling_trembling_stats(results_df, OUTPUT_PATH)
+        
     else:
         print("Analysis completed but no data was processed.")
 
     if not cop_power_summary_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         cop_power_summary_file_path = os.path.join(OUTPUT_PATH, f'PCD_cop_power_summary_{timestamp_str}.xlsx')
-        
         cop_power_summary_df.to_excel(cop_power_summary_file_path, index=False)
-        
         print(f"COP power summary saved to {cop_power_summary_file_path}.")
         
         # Export COP frequency power summary to a separate Excel file
