@@ -14,8 +14,8 @@ SAMPLING_RATE = 100  # Hz
 
 FREQ_BANDS = {'LF': (0, 0.3), 'MF': (0.3, 1), 'HF': (1, 3)}
 
-def butter_lowpass_filter(data, cutoff, fs, order=2):
-    b, a = butter(order, cutoff / (0.5 * fs), btype='low')
+def butter_lowpass_filter(data, cutoff, fs, order=4):
+    b, a = butter(order, cutoff / (2.0 * fs), btype='low')
     return filtfilt(b, a, data)
 
 def compute_psd(data, fs):
