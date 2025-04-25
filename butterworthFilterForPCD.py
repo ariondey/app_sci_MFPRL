@@ -6,6 +6,7 @@ from scipy.signal import butter, filtfilt
 from scipy.fft import fft, fftfreq
 from scipy.integrate import trapezoid
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL\PCD_SOT_data"
 OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
@@ -13,8 +14,8 @@ SAMPLING_RATE = 100  # Hz
 
 FREQ_BANDS = {'LF': (0, 0.3), 'MF': (0.3, 1), 'HF': (1, 3)}
 
-def butter_lowpass_filter(data, cutoff, fs, order=2):
-    b, a = butter(order, cutoff / (0.5 * fs), btype='low')
+def butter_lowpass_filter(data, cutoff, fs, order=4):  # Increase filter order to 4
+    b, a = butter(order, cutoff / (2.0 * fs), btype='low')
     return filtfilt(b, a, data)
 
 def compute_psd(data, fs):
@@ -32,8 +33,8 @@ def integrate_power(freq, power_density, bands):
     return integrated_power
 
 def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
-    # Use force_signal in the computation if needed
-    rambling = butter_lowpass_filter(cop_signal, cutoff=2.0, fs=sampling_rate)
+    # Use force signal to refine the rambling component
+    rambling = butter_lowpass_filter(cop_signal, cutoff=0.5, fs=sampling_rate)
     trembling = cop_signal - rambling
     return rambling, trembling
 
@@ -79,6 +80,25 @@ def process_csv_file(file_path, sampling_rate=100):
         rambling_y_combined = np.nanmean([rambling_y_left, rambling_y_right], axis=0)
         trembling_x_combined = np.nanmean([trembling_x_left, trembling_x_right], axis=0)
         trembling_y_combined = np.nanmean([trembling_y_left, trembling_y_right], axis=0)
+
+        # # Plot COP, rambling, and trembling signals for X and Y axes
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_x_combined, 
+        #     rambling_signal=rambling_x_combined, 
+        #     trembling_signal=trembling_x_combined, 
+        #     title="COP, Rambling, and Trembling Signals (X-Axis)"
+        # )
+
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_y_combined, 
+        #     rambling_signal=rambling_y_combined, 
+        #     trembling_signal=trembling_y_combined, 
+        #     title="COP, Rambling, and Trembling Signals (Y-Axis)"
+        # )
+
+        # # Analyze the frequency spectrum of the combined COP signals
+        # analyze_cop_frequency_spectrum(cop_x_combined, sampling_rate)
+        # analyze_cop_frequency_spectrum(cop_y_combined, sampling_rate)
 
         # Compute PSD and integrated power for the X-axis signals
         freq_rambling_x, psd_rambling_x = compute_psd(rambling_x_combined, sampling_rate)
@@ -210,6 +230,32 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
     output_file = os.path.join(output_dir, "PCD_mean_sd_trembling_rambling.xlsx")
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
+
+# def plot_cop_rambling_trembling(cop_signal, rambling_signal, trembling_signal, title="COP, Rambling, and Trembling Signals"):
+#     """Plot the time series of COP, rambling, and trembling signals."""
+#     time = np.arange(len(cop_signal))  # Assuming the sampling rate is constant and time is in samples
+#     plt.figure(figsize=(12, 6))
+#     plt.plot(time, cop_signal, label="COP", color="blue")
+#     plt.plot(time, rambling_signal, label="Rambling", color="green")
+#     plt.plot(time, trembling_signal, label="Trembling", color="red")
+#     plt.xlabel("Time (samples)")
+#     plt.ylabel("Signal Amplitude")
+#     plt.title(title)
+#     plt.legend()
+#     plt.grid()
+#     plt.show()
+
+# def analyze_cop_frequency_spectrum(cop_signal, sampling_rate):
+#     """Analyze and plot the frequency spectrum of the COP signal."""
+#     freq, psd = compute_psd(cop_signal, sampling_rate)
+#     plt.figure(figsize=(10, 6))
+#     plt.plot(freq, psd, color='blue', label='COP Signal PSD')
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Power Spectral Density")
+#     plt.title("Frequency Spectrum of COP Signal")
+#     plt.grid()
+#     plt.legend()
+#     plt.show()
 
 if __name__ == "__main__":
     print("Starting analysis...")

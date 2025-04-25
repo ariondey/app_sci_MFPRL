@@ -6,6 +6,7 @@ from scipy.signal import butter, filtfilt
 from scipy.fft import fft, fftfreq
 from scipy.integrate import trapezoid
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL\COP_Clinical_curated"
 OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
@@ -32,10 +33,15 @@ def integrate_power(freq, power_density, bands):
     return integrated_power
 
 def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
-    # Use force_signal in the computation if needed
-    rambling = butter_lowpass_filter(cop_signal, cutoff=2.0, fs=sampling_rate)
-    trembling = cop_signal - rambling
-    return rambling, trembling
+    """
+    Compute the rambling and trembling components of a signal.
+    The force signal is used to refine the rambling component.
+    """
+    # Use the force signal to refine the rambling component
+    rambling = butter_lowpass_filter(cop_signal, cutoff=0.5, fs=sampling_rate)
+    refined_rambling = rambling * (1 + 0.1 * np.abs(force_signal))  # Example refinement using force signal
+    trembling = cop_signal - refined_rambling
+    return refined_rambling, trembling
 
 def process_csv_file(file_path, sampling_rate=100):
     try:
@@ -100,6 +106,37 @@ def process_csv_file(file_path, sampling_rate=100):
 
         cop_x_power_bands = integrate_power(freq_cop_x, psd_cop_x, FREQ_BANDS)
         cop_y_power_bands = integrate_power(freq_cop_y, psd_cop_y, FREQ_BANDS)
+
+        # # Plot COP, rambling, and trembling signals for X and Y axes
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_x_combined, 
+        #     rambling_signal=rambling_x_combined, 
+        #     trembling_signal=trembling_x_combined, 
+        #     title="COP, Rambling, and Trembling Signals (X-Axis)",
+        #     output_dir="./plots"
+        # )
+
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_y_combined, 
+        #     rambling_signal=rambling_y_combined, 
+        #     trembling_signal=trembling_y_combined, 
+        #     title="COP, Rambling, and Trembling Signals (Y-Axis)",
+        #     output_dir="./plots"
+        # )
+
+        # # Analyze the frequency spectrum of the combined COP signals
+        # analyze_cop_frequency_spectrum(
+        #     signal=cop_x_combined, 
+        #     sampling_rate=sampling_rate, 
+        #     title="Frequency Spectrum (X-Axis)",
+        #     output_dir="./plots"
+        # )
+        # analyze_cop_frequency_spectrum(
+        #     signal=cop_y_combined, 
+        #     sampling_rate=sampling_rate, 
+        #     title="Frequency Spectrum (Y-Axis)",
+        #     output_dir="./plots"
+        # )
 
         result_data = {
             "Subject_ID": subject_num,
@@ -217,6 +254,47 @@ def export_mean_sd_by_cohort_to_excel(mean_sd_df, output_dir="./mean_sd_summary_
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components by cohort exported to: {output_file}")
 
+def plot_cop_rambling_trembling(cop_signal, rambling_signal, trembling_signal, title, output_dir="./plots"):
+    """Plot COP, rambling, and trembling signals and save the figure."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(cop_signal, label="COP Signal", alpha=0.8)
+    plt.plot(rambling_signal, label="Rambling Component", alpha=0.8)
+    plt.plot(trembling_signal, label="Trembling Component", alpha=0.8)
+    plt.title(title)
+    plt.xlabel("Time (samples)")
+    plt.ylabel("Signal Amplitude")
+    plt.legend()
+    plt.grid()
+    
+    # Save the figure
+    filename = os.path.join(output_dir, f"{title.replace(' ', '_')}.png")
+    plt.savefig(filename)
+    plt.close()  # Close the figure to avoid displaying it
+    print(f"Saved plot: {filename}")
+
+def analyze_cop_frequency_spectrum(signal, sampling_rate, title, output_dir="./plots"):
+    """Analyze and save the frequency spectrum of a signal."""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    freq, power_density = compute_psd(signal, sampling_rate)
+    plt.figure(figsize=(10, 6))
+    plt.plot(freq, power_density, label="Power Spectral Density")
+    plt.title(title)
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Power Density")
+    plt.grid()
+    plt.legend()
+    
+    # Save the figure
+    filename = os.path.join(output_dir, f"{title.replace(' ', '_')}.png")
+    plt.savefig(filename)
+    plt.close()  # Close the figure to avoid displaying it
+    print(f"Saved frequency spectrum: {filename}")
+
 if __name__ == "__main__":
     print("Starting analysis...")
     
@@ -236,7 +314,7 @@ if __name__ == "__main__":
         
         # Compute and export mean/SD of trembling and rambling components by cohort
         mean_sd_by_cohort_df = compute_mean_sd_trembling_rambling_by_cohort(results_df)
-        export_mean_sd_by_cohort_to_excel(mean_sd_by_cohort_df, OUTPUT_PATH)
+        export_mean_sd_to_excel(mean_sd_by_cohort_df, OUTPUT_PATH)
         
     else:
         print("Analysis completed but no data was processed.")
