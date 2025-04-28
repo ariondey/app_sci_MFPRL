@@ -9,67 +9,134 @@ from scipy.interpolate import CubicSpline
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+# Define base paths for input data and output results
 BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL\COP_Clinical_curated"
 OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
-SAMPLING_RATE = 100  # Hz
+SAMPLING_RATE = 100  # Sampling rate in Hz
 
+# Define frequency bands for analysis
 FREQ_BANDS = {'LF': (0, 0.3), 'MF': (0.3, 1), 'HF': (1, 3)}
 
+# Function to apply a low-pass Butterworth filter
 def butter_lowpass_filter(data, cutoff, fs, order=4):
+    """
+    Applies a low-pass Butterworth filter to the input data.
+    Args:
+        data: Input signal
+        cutoff: Cutoff frequency in Hz
+        fs: Sampling rate in Hz
+        order: Filter order
+    Returns:
+        Filtered signal
+    """
     b, a = butter(order, cutoff / (0.5 * fs), btype='low')
     return filtfilt(b, a, data)
 
+# Function to compute the Power Spectral Density (PSD) of a signal
 def compute_psd(data, fs):
+    """
+    Computes the Power Spectral Density (PSD) of the input signal.
+    Args:
+        data: Input signal
+        fs: Sampling rate in Hz
+    Returns:
+        freq: Frequency bins
+        power_density: Power spectral density
+    """
     n = len(data)
     freq = fftfreq(n, d=1/fs)[:n//2]
     fft_values = np.abs(fft(data))[:n//2]
     power_density = (fft_values ** 2) / n
     return freq, power_density
 
+# Function to integrate power over specified frequency bands
 def integrate_power(freq, power_density, bands):
+    """
+    Integrates power over specified frequency bands.
+    Args:
+        freq: Frequency bins
+        power_density: Power spectral density
+        bands: Dictionary of frequency bands
+    Returns:
+        integrated_power: Dictionary of integrated power for each band
+    """
     integrated_power = {}
     for band_name, (low_f, high_f) in bands.items():
         band_mask = (freq >= low_f) & (freq <= high_f)
         integrated_power[band_name] = trapezoid(power_density[band_mask], freq[band_mask]) if np.any(band_mask) else 0
     return integrated_power
 
+# Function to compute rambling and trembling components
 def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
     """
-    Computes rambling as COP at IEPs (force = 0) and trembling as deviations from the IEP trajectory.
+    Computes rambling as COP excursion (COP - mean(COP)) at IEPs (force = 0),
+    resampled to match the original sampling rate, and trembling as deviations
+    from the IEP trajectory.
+    Args:
+        cop_signal: Center of Pressure (COP) signal
+        force_signal: Force signal
+        sampling_rate: Sampling rate in Hz
+    Returns:
+        rambling: Rambling component
+        trembling: Trembling component
     """
+    # Compute the mean-centered COP (COP excursion)
+    cop_excursion = cop_signal - np.mean(cop_signal)
+
+    # Detect zero-crossings in horizontal force signal
     zero_crossings = np.where(np.diff(np.sign(force_signal)))[0]
     iep_times, iep_cop = [], []
+
+    # Find exact IEP times and COP values via linear interpolation
     for i in zero_crossings:
         t1, t2 = i, i + 1
         f1, f2 = force_signal[t1], force_signal[t2]
         if f1 == 0:
             iep_times.append(t1)
-            iep_cop.append(cop_signal[t1])
+            iep_cop.append(cop_excursion[t1])
         else:
             alpha = -f1 / (f2 - f1)
             iep_time = t1 + alpha
-            iep_cop_val = cop_signal[t1] + alpha * (cop_signal[t2] - cop_signal[t1])
+            iep_cop_val = cop_excursion[t1] + alpha * (cop_excursion[t2] - cop_excursion[t1])
             iep_times.append(iep_time)
             iep_cop.append(iep_cop_val)
+
+    # Handle insufficient IEPs
     if len(iep_times) < 2:
         print("Insufficient IEPs detected. Extrapolating rambling trajectory.")
         rambling = np.interp(
             np.arange(len(cop_signal)) / sampling_rate,
             np.array(iep_times) / sampling_rate,
             iep_cop,
-            left=iep_cop[0],
-            right=iep_cop[-1]
+            left=iep_cop[0] if iep_cop else 0,
+            right=iep_cop[-1] if iep_cop else 0
         )
         trembling = cop_signal - rambling
         return rambling, trembling
+
+    # Interpolate the IEP trajectory using cubic spline
     t_full = np.arange(len(cop_signal)) / sampling_rate
     iep_times_sec = np.array(iep_times) / sampling_rate
     rambling = CubicSpline(iep_times_sec, iep_cop, extrapolate=False)(t_full)
+
+    # Replace edge NaNs with nearest valid values
     rambling = pd.Series(rambling).ffill().bfill().values
+
+    # Compute trembling as deviations from the IEP trajectory
     trembling = cop_signal - rambling
+
     return rambling, trembling
 
+# Function to process a single CSV file
 def process_csv_file(file_path, sampling_rate=100):
+    """
+    Processes a single CSV file to compute rambling and trembling components.
+    Args:
+        file_path: Path to the CSV file
+        sampling_rate: Sampling rate in Hz
+    Returns:
+        result_data: Dictionary of computed results
+    """
     try:
         filename = os.path.basename(file_path)
         pattern = r"(\d+)__(\w+)__(\d+)__(\d+)__(\d+)__.*\.csv"
@@ -83,6 +150,8 @@ def process_csv_file(file_path, sampling_rate=100):
         condition_num = int(match.group(4))
         trial_in_condition_num = int(match.group(5))
         df_raw = pd.read_csv(file_path)
+
+        # Extract COP and force data
         cop_x_left = pd.to_numeric(df_raw['L.COFx'], errors='coerce').interpolate().values
         cop_y_left = pd.to_numeric(df_raw['L.COFy'], errors='coerce').interpolate().values
         cop_x_right = pd.to_numeric(df_raw['R.COFx'], errors='coerce').interpolate().values
@@ -91,16 +160,24 @@ def process_csv_file(file_path, sampling_rate=100):
         force_y_left = pd.to_numeric(df_raw['L.Fy'], errors='coerce').ffill().bfill().values
         force_x_right = pd.to_numeric(df_raw['R.Fx'], errors='coerce').ffill().bfill().values
         force_y_right = pd.to_numeric(df_raw['R.Fy'], errors='coerce').ffill().bfill().values
+
+        # Combine forces and COP across plates
         force_x_combined = force_x_left + force_x_right
         force_y_combined = force_y_left + force_y_right
         cop_x_combined = np.nanmean([cop_x_left, cop_x_right], axis=0)
         cop_y_combined = np.nanmean([cop_y_left, cop_y_right], axis=0)
+
+        # Preprocess the force signal with a low-pass filter (cutoff > 5 Hz)
         force_x_combined = detrend(force_x_combined)
-        force_x_combined = butter_lowpass_filter(force_x_combined, cutoff=3, fs=sampling_rate)
+        force_x_combined = butter_lowpass_filter(force_x_combined, cutoff=6, fs=sampling_rate)
         force_y_combined = detrend(force_y_combined)
-        force_y_combined = butter_lowpass_filter(force_y_combined, cutoff=3, fs=sampling_rate)
+        force_y_combined = butter_lowpass_filter(force_y_combined, cutoff=6, fs=sampling_rate)
+
+        # Compute rambling and trembling components
         rambling_x, trembling_x = compute_rambling_trembling(cop_x_combined, force_x_combined, sampling_rate)
         rambling_y, trembling_y = compute_rambling_trembling(cop_y_combined, force_y_combined, sampling_rate)
+
+        # Prepare result data
         result_data = {
             "Subject_ID": subject_num,
             "Condition": condition_num,
@@ -116,7 +193,15 @@ def process_csv_file(file_path, sampling_rate=100):
         print(f"Error processing {file_path}: {e}")
         return None
 
+# Function to analyze all subjects in the dataset
 def analyze_all_subjects(base_path):
+    """
+    Analyzes all subjects in the dataset by processing all CSV files.
+    Args:
+        base_path: Path to the dataset directory
+    Returns:
+        DataFrame of results
+    """
     results_list = []
     base_path_abs = os.path.abspath(base_path)
     for root_dirpath, _, filenames in os.walk(base_path_abs):
@@ -128,7 +213,15 @@ def analyze_all_subjects(base_path):
                     results_list.append(processed_trial_data)
     return pd.DataFrame(results_list)
 
+# Function to compute mean and standard deviation of trembling and rambling components
 def compute_mean_sd_trembling_rambling(results_df):
+    """
+    Computes the mean and standard deviation of trembling and rambling components, grouped by cohort.
+    Args:
+        results_df: DataFrame of results
+    Returns:
+        DataFrame of mean and standard deviation
+    """
     mean_sd_data = {
         "Cohort": [],
         "Component": [],
@@ -152,13 +245,21 @@ def compute_mean_sd_trembling_rambling(results_df):
                     mean_sd_data["Participants"].append(participant_count)
     return pd.DataFrame(mean_sd_data)
 
+# Function to export mean and standard deviation to an Excel file
 def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
+    """
+    Exports the mean and standard deviation of trembling and rambling components to an Excel file.
+    Args:
+        mean_sd_df: DataFrame of mean and standard deviation
+        output_dir: Directory to save the Excel file
+    """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     output_file = os.path.join(output_dir, "TCOA_mean_sd_trembling_rambling.xlsx")
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
 
+# Main script execution
 if __name__ == "__main__":
     print("Starting analysis...")
     results_df = analyze_all_subjects(BASE_PATH)
