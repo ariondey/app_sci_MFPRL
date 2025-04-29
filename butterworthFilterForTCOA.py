@@ -283,14 +283,16 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
 
 def export_cop_power_summary(cop_power_summary_df, output_dir="./cop_power_summary"):
     """
-    Exports the COP power summary to an Excel file.
+    Exports the COP power summary to an Excel file with a timestamp in the filename.
     Args:
         cop_power_summary_df: DataFrame of COP power summary
         output_dir: Directory to save the Excel file
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    output_file = os.path.join(output_dir, "TCOA_COP_Power_Summary.xlsx")
+    # Add a timestamp to the filename
+    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(output_dir, f"TCOA_COP_Power_Summary_{timestamp_str}.xlsx")
     cop_power_summary_df.to_excel(output_file, index=False)
     print(f"COP power summary exported to: {output_file}")
 
