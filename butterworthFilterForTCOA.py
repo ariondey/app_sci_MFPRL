@@ -130,12 +130,13 @@ def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
 # Function to process a single CSV file
 def process_csv_file(file_path, sampling_rate=100):
     """
-    Processes a single CSV file to compute rambling and trembling components.
+    Processes a single CSV file to compute rambling and trembling components and COP power data.
     Args:
         file_path: Path to the CSV file
         sampling_rate: Sampling rate in Hz
     Returns:
         result_data: Dictionary of computed results
+        cop_power_summary: Dictionary of COP power summary
     """
     try:
         filename = os.path.basename(file_path)
@@ -143,7 +144,7 @@ def process_csv_file(file_path, sampling_rate=100):
         match = re.match(pattern, filename)
         if not match:
             print(f"Filename '{filename}' does not match pattern.")
-            return None
+            return None, None
         trial_global_num = int(match.group(1))
         study = match.group(2)
         subject_num = int(match.group(3))
@@ -177,6 +178,13 @@ def process_csv_file(file_path, sampling_rate=100):
         rambling_x, trembling_x = compute_rambling_trembling(cop_x_combined, force_x_combined, sampling_rate)
         rambling_y, trembling_y = compute_rambling_trembling(cop_y_combined, force_y_combined, sampling_rate)
 
+        # Compute PSD and integrated power for the combined COP signals
+        freq_cop_x, psd_cop_x = compute_psd(cop_x_combined, sampling_rate)
+        freq_cop_y, psd_cop_y = compute_psd(cop_y_combined, sampling_rate)
+
+        cop_x_power_bands = integrate_power(freq_cop_x, psd_cop_x, FREQ_BANDS)
+        cop_y_power_bands = integrate_power(freq_cop_y, psd_cop_y, FREQ_BANDS)
+
         # Prepare result data
         result_data = {
             "Subject_ID": subject_num,
@@ -188,10 +196,21 @@ def process_csv_file(file_path, sampling_rate=100):
             "Rambling_Y": rambling_y.mean(),
             "Trembling_Y": trembling_y.mean(),
         }
-        return result_data
+
+        # Prepare COP power summary
+        cop_power_summary = {
+            "Subject_ID": subject_num,
+            "Condition": condition_num,
+            "Trial": trial_in_condition_num,
+            "Study": study,
+            **{f'COP_X_{band}_Power': val for band, val in cop_x_power_bands.items()},
+            **{f'COP_Y_{band}_Power': val for band, val in cop_y_power_bands.items()}
+        }
+
+        return result_data, cop_power_summary
     except Exception as e:
         print(f"Error processing {file_path}: {e}")
-        return None
+        return None, None
 
 # Function to analyze all subjects in the dataset
 def analyze_all_subjects(base_path):
@@ -200,18 +219,21 @@ def analyze_all_subjects(base_path):
     Args:
         base_path: Path to the dataset directory
     Returns:
-        DataFrame of results
+        DataFrame of results and COP power summary
     """
     results_list = []
+    cop_power_summary_list = []
     base_path_abs = os.path.abspath(base_path)
     for root_dirpath, _, filenames in os.walk(base_path_abs):
         for file in filenames:
             if file.endswith('.csv'):
                 full_file_path = os.path.join(root_dirpath, file)
-                processed_trial_data = process_csv_file(full_file_path)
+                processed_trial_data, cop_power_summary = process_csv_file(full_file_path)
                 if processed_trial_data is not None:
                     results_list.append(processed_trial_data)
-    return pd.DataFrame(results_list)
+                if cop_power_summary is not None:
+                    cop_power_summary_list.append(cop_power_summary)
+    return pd.DataFrame(results_list), pd.DataFrame(cop_power_summary_list)
 
 # Function to compute mean and standard deviation of trembling and rambling components
 def compute_mean_sd_trembling_rambling(results_df):
@@ -259,16 +281,36 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
 
+def export_cop_power_summary(cop_power_summary_df, output_dir="./cop_power_summary"):
+    """
+    Exports the COP power summary to an Excel file.
+    Args:
+        cop_power_summary_df: DataFrame of COP power summary
+        output_dir: Directory to save the Excel file
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_file = os.path.join(output_dir, "TCOA_COP_Power_Summary.xlsx")
+    cop_power_summary_df.to_excel(output_file, index=False)
+    print(f"COP power summary exported to: {output_file}")
+
 # Main script execution
 if __name__ == "__main__":
     print("Starting analysis...")
-    results_df = analyze_all_subjects(BASE_PATH)
+    results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file_path = os.path.join(OUTPUT_PATH, f'tcoa_results_{timestamp_str}.xlsx')
         results_df.to_excel(output_file_path, index=False)
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
+        
+        # Compute and export mean/SD of trembling and rambling
         mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
         export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
     else:
         print("Analysis completed but no data was processed.")
+
+    if not cop_power_summary_df.empty:
+        export_cop_power_summary(cop_power_summary_df, OUTPUT_PATH)
+    else:
+        print("No COP power summary data was processed.")
