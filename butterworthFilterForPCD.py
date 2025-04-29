@@ -348,7 +348,7 @@ if __name__ == "__main__":
     
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_{timestamp_str}.xlsx')
+        output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_RamblingTrembling_{timestamp_str}.xlsx')
         
         results_df.to_excel(output_file_path, index=False)
         

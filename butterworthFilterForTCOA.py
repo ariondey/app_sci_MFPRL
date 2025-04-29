@@ -300,7 +300,7 @@ if __name__ == "__main__":
     results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
     if not results_df.empty:
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file_path = os.path.join(OUTPUT_PATH, f'tcoa_results_{timestamp_str}.xlsx')
+        output_file_path = os.path.join(OUTPUT_PATH, f'tcoa_results_RamblingTrembling_{timestamp_str}.xlsx')
         results_df.to_excel(output_file_path, index=False)
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
         
