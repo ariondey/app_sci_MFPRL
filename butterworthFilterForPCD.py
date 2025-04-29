@@ -343,34 +343,33 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
 
 if __name__ == "__main__":
     print("Starting analysis...")
-    
+
+    # Analyze all subjects and process results
     results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
-    
+
     if not results_df.empty:
+        # Save the main results to an Excel file
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_RamblingTrembling_{timestamp_str}.xlsx')
-        
         results_df.to_excel(output_file_path, index=False)
-        
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
-        
-        # Compute and export mean/SD of trembling and rambling
-        mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
-        export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
-        
 
-        
+        # Compute and export mean and SD of trembling and rambling components
+        mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
+        export_mean_sd_to_excel(mean_sd_df, output_dir=os.path.join(OUTPUT_PATH, "mean_sd_summary"))
+
     else:
         print("Analysis completed but no data was processed.")
 
     if not cop_power_summary_df.empty:
+        # Save the COP power summary to an Excel file
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         cop_power_summary_file_path = os.path.join(OUTPUT_PATH, f'PCD_cop_power_summary_{timestamp_str}.xlsx')
         cop_power_summary_df.to_excel(cop_power_summary_file_path, index=False)
         print(f"COP power summary saved to {cop_power_summary_file_path}.")
-        
+
         # Export COP frequency power summary to a separate Excel file
-        export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), OUTPUT_PATH)
-        
+        export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), output_dir=os.path.join(OUTPUT_PATH, "cop_power_summary"))
+
     else:
         print("No COP power summary data was processed.")
