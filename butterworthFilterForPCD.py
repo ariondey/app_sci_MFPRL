@@ -2,19 +2,19 @@ import os
 import re
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, detrend
 from scipy.fft import fft, fftfreq
 from scipy.integrate import trapezoid
 from datetime import datetime
 import matplotlib.pyplot as plt
+from scipy.interpolate import CubicSpline
 
 BASE_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL\PCD_SOT_data"
 OUTPUT_PATH = r"C:\Users\ari\Documents\UIUC\MFPRL\app_sci_MFPRL"
 SAMPLING_RATE = 100  # Hz
-
 FREQ_BANDS = {'LF': (0, 0.3), 'MF': (0.3, 1), 'HF': (1, 3)}
 
-def butter_lowpass_filter(data, cutoff, fs, order=2):
+def butter_lowpass_filter(data, cutoff, fs, order=4):  # Increase filter order to 4
     b, a = butter(order, cutoff / (0.5 * fs), btype='low')
     return filtfilt(b, a, data)
 
@@ -33,9 +33,56 @@ def integrate_power(freq, power_density, bands):
     return integrated_power
 
 def compute_rambling_trembling(cop_signal, force_signal, sampling_rate=100):
-    # Use force_signal in the computation if needed
-    rambling = butter_lowpass_filter(cop_signal, cutoff=2.0, fs=sampling_rate)
+    """
+    Computes rambling as COP excursion (COP - mean(COP)) at IEPs (force = 0),
+    resampled to match the original sampling rate, and trembling as deviations
+    from the IEP trajectory.
+    """
+    # Compute the mean-centered COP (COP excursion)
+    cop_excursion = cop_signal - np.mean(cop_signal)
+
+    # Detect zero-crossings in horizontal force signal
+    zero_crossings = np.where(np.diff(np.sign(force_signal)))[0]
+    iep_times, iep_cop = [], []
+
+    # Find exact IEP times and COP values via linear interpolation
+    for i in zero_crossings:
+        t1, t2 = i, i + 1
+        f1, f2 = force_signal[t1], force_signal[t2]
+        if f1 == 0:
+            iep_times.append(t1)
+            iep_cop.append(cop_excursion[t1])
+        else:
+            alpha = -f1 / (f2 - f1)
+            iep_time = t1 + alpha
+            iep_cop_val = cop_excursion[t1] + alpha * (cop_excursion[t2] - cop_excursion[t1])
+            iep_times.append(iep_time)
+            iep_cop.append(iep_cop_val)
+
+    # Handle insufficient IEPs
+    if len(iep_times) < 2:
+        print("Insufficient IEPs detected. Extrapolating rambling trajectory.")
+        rambling = np.interp(
+            np.arange(len(cop_signal)) / sampling_rate,
+            np.array(iep_times) / sampling_rate,
+            iep_cop,
+            left=iep_cop[0] if iep_cop else 0,
+            right=iep_cop[-1] if iep_cop else 0
+        )
+        trembling = cop_signal - rambling
+        return rambling, trembling
+
+    # Interpolate the IEP trajectory using cubic spline
+    t_full = np.arange(len(cop_signal)) / sampling_rate
+    iep_times_sec = np.array(iep_times) / sampling_rate
+    rambling = CubicSpline(iep_times_sec, iep_cop, extrapolate=False)(t_full)
+
+    # Replace edge NaNs with nearest valid values
+    rambling = pd.Series(rambling).ffill().bfill().values
+
+    # Compute trembling as deviations from the IEP trajectory
     trembling = cop_signal - rambling
+
     return rambling, trembling
 
 def process_csv_file(file_path, sampling_rate=100):
@@ -67,30 +114,46 @@ def process_csv_file(file_path, sampling_rate=100):
         force_x_right = pd.to_numeric(df_raw['R.Fx'], errors='coerce').ffill().bfill().values
         force_y_right = pd.to_numeric(df_raw['R.Fy'], errors='coerce').ffill().bfill().values
 
-        # Compute rambling and trembling components for each direction
-        rambling_x_left, trembling_x_left = compute_rambling_trembling(cop_x_left, force_x_left, sampling_rate)
-        rambling_y_left, trembling_y_left = compute_rambling_trembling(cop_y_left, force_y_left, sampling_rate)
-        rambling_x_right, trembling_x_right = compute_rambling_trembling(cop_x_right, force_x_right, sampling_rate)
-        rambling_y_right, trembling_y_right = compute_rambling_trembling(cop_y_right, force_y_right, sampling_rate)
-
-        # Combine left and right data (average them)
-        cop_x_combined = np.nanmean([cop_x_left, cop_x_right], axis=0)
+        # Combine forces and COP across plates (critical for bipedal stance)
+        force_x_combined = force_x_left + force_x_right  # Total horizontal force
+        force_y_combined = force_y_left + force_y_right
+        cop_x_combined = np.nanmean([cop_x_left, cop_x_right], axis=0)  # Simplified COP merge
         cop_y_combined = np.nanmean([cop_y_left, cop_y_right], axis=0)
-        rambling_x_combined = np.nanmean([rambling_x_left, rambling_x_right], axis=0)
-        rambling_y_combined = np.nanmean([rambling_y_left, rambling_y_right], axis=0)
-        trembling_x_combined = np.nanmean([trembling_x_left, trembling_x_right], axis=0)
-        trembling_y_combined = np.nanmean([trembling_y_left, trembling_y_right], axis=0)
+
+        # Preprocess the force signal with a low-pass filter (cutoff > 5 Hz)
+        force_x_combined = detrend(force_x_combined)
+        force_x_combined = butter_lowpass_filter(force_x_combined, cutoff=6, fs=sampling_rate)
+
+        force_y_combined = detrend(force_y_combined)
+        force_y_combined = butter_lowpass_filter(force_y_combined, cutoff=6, fs=sampling_rate)
+
+        # Detect zero-crossings in combined force signals
+        zero_crossings_x = np.where(np.diff(np.sign(force_x_combined)))[0]
+        zero_crossings_y = np.where(np.diff(np.sign(force_y_combined)))[0]
+        print(f"Zero-crossings in Force X: {len(zero_crossings_x)}")
+        print(f"Zero-crossings in Force Y: {len(zero_crossings_y)}")
+
+        # Weight IEPs based on the magnitude of the force signal
+        weights = np.abs(force_x_combined[zero_crossings_x])
+        weighted_iep_cop_x = np.average(cop_x_combined[zero_crossings_x], weights=weights)
+
+        weights = np.abs(force_y_combined[zero_crossings_y])
+        weighted_iep_cop_y = np.average(cop_y_combined[zero_crossings_y], weights=weights)
+
+        # Compute rambling/trembling using COMBINED signals
+        rambling_x, trembling_x = compute_rambling_trembling(cop_x_combined, force_x_combined, sampling_rate)
+        rambling_y, trembling_y = compute_rambling_trembling(cop_y_combined, force_y_combined, sampling_rate)
 
         # Compute PSD and integrated power for the X-axis signals
-        freq_rambling_x, psd_rambling_x = compute_psd(rambling_x_combined, sampling_rate)
-        freq_trembling_x, psd_trembling_x = compute_psd(trembling_x_combined, sampling_rate)
+        freq_rambling_x, psd_rambling_x = compute_psd(rambling_x, sampling_rate)
+        freq_trembling_x, psd_trembling_x = compute_psd(trembling_x, sampling_rate)
 
         rambling_power_x_bands = integrate_power(freq_rambling_x, psd_rambling_x, FREQ_BANDS)
         trembling_power_x_bands = integrate_power(freq_trembling_x, psd_trembling_x, FREQ_BANDS)
 
         # Compute PSD and integrated power for the Y-axis signals
-        freq_rambling_y, psd_rambling_y = compute_psd(rambling_y_combined, sampling_rate)
-        freq_trembling_y, psd_trembling_y = compute_psd(trembling_y_combined, sampling_rate)
+        freq_rambling_y, psd_rambling_y = compute_psd(rambling_y, sampling_rate)
+        freq_trembling_y, psd_trembling_y = compute_psd(trembling_y, sampling_rate)
 
         rambling_power_y_bands = integrate_power(freq_rambling_y, psd_rambling_y, FREQ_BANDS)
         trembling_power_y_bands = integrate_power(freq_trembling_y, psd_trembling_y, FREQ_BANDS)
@@ -112,10 +175,12 @@ def process_csv_file(file_path, sampling_rate=100):
             **{f'Trembling_X_{band}_Power': val for band, val in trembling_power_x_bands.items()},
             **{f'Rambling_Y_{band}_Power': val for band, val in rambling_power_y_bands.items()},
             **{f'Trembling_Y_{band}_Power': val for band, val in trembling_power_y_bands.items()},
-            "Rambling_X": rambling_x_combined.mean(),
-            "Rambling_Y": rambling_y_combined.mean(),
-            "Trembling_X": trembling_x_combined.mean(),
-            "Trembling_Y": trembling_y_combined.mean()
+            "Rambling_X": rambling_x.mean(),
+            "Rambling_Y": rambling_y.mean(),
+            "Trembling_X": trembling_x.mean(),
+            "Trembling_Y": trembling_y.mean(),
+            "Weighted_IEP_COP_X": weighted_iep_cop_x,
+            "Weighted_IEP_COP_Y": weighted_iep_cop_y
         }
 
         cop_power_summary = {
@@ -126,6 +191,45 @@ def process_csv_file(file_path, sampling_rate=100):
             **{f'COP_X_{band}_Power': val for band, val in cop_x_power_bands.items()},
             **{f'COP_Y_{band}_Power': val for band, val in cop_y_power_bands.items()}
         }
+
+        # # Plot COP, rambling, and trembling signals for X and Y axes
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_x_combined,
+        #     rambling_signal=rambling_x,
+        #     trembling_signal=trembling_x,
+        #     title="COP, Rambling, and Trembling Signals (X-Axis)"
+        # )
+        # plot_cop_rambling_trembling(
+        #     cop_signal=cop_y_combined,
+        #     rambling_signal=rambling_y,
+        #     trembling_signal=trembling_y,
+        #     title="COP, Rambling, and Trembling Signals (Y-Axis)"
+        # )
+
+        # # Plot combined force signals
+        # plt.plot(force_x_combined, label="Force X Combined")
+        # plt.plot(force_y_combined, label="Force Y Combined")
+        # plt.legend()
+        # plt.show()
+
+        # # Analyze the frequency spectrum of the combined COP signals
+        # analyze_cop_frequency_spectrum(cop_x_combined, sampling_rate)
+        # analyze_cop_frequency_spectrum(cop_y_combined, sampling_rate)
+
+        # # Plot PSDs for COP, rambling, and trembling signals
+        # freq_cop, psd_cop = compute_psd(cop_x_combined, sampling_rate)
+        # freq_rambling, psd_rambling = compute_psd(rambling_x, sampling_rate)
+        # freq_trembling, psd_trembling = compute_psd(trembling_x, sampling_rate)
+
+        # plt.figure(figsize=(10, 6))
+        # plt.plot(freq_cop, psd_cop, label="COP PSD")
+        # plt.plot(freq_rambling, psd_rambling, label="Rambling PSD")
+        # plt.plot(freq_trembling, psd_trembling, label="Trembling PSD")
+        # plt.xlabel("Frequency (Hz)")
+        # plt.ylabel("Power Spectral Density")
+        # plt.legend()
+        # plt.grid()
+        # plt.show()
 
         return result_data, cop_power_summary
 
@@ -212,37 +316,60 @@ def export_mean_sd_to_excel(mean_sd_df, output_dir="./mean_sd_summary"):
     mean_sd_df.to_excel(output_file, index=False)
     print(f"Mean/SD of trembling and rambling components exported to: {output_file}")
 
+# def plot_cop_rambling_trembling(cop_signal, rambling_signal, trembling_signal, title="COP, Rambling, and Trembling Signals"):
+#     """Plot the time series of COP, rambling, and trembling signals."""
+#     time = np.arange(len(cop_signal))  # Assuming the sampling rate is constant and time is in samples
+#     plt.figure(figsize=(12, 6))
+#     plt.plot(cop_signal, label="COP Signal", color="blue")
+#     plt.plot(rambling_signal, label="Rambling Component", color="green")
+#     plt.plot(trembling_signal, label="Trembling Component", color="red")
+#     plt.xlabel("Time (samples)")
+#     plt.ylabel("Signal Amplitude")
+#     plt.legend()
+#     plt.grid()
+#     plt.show()
+
+# def analyze_cop_frequency_spectrum(cop_signal, sampling_rate):
+#     """Analyze and plot the frequency spectrum of the COP signal."""
+#     freq, psd = compute_psd(cop_signal, sampling_rate)
+#     plt.figure(figsize=(10, 6))
+#     plt.plot(freq, psd, color='blue', label='COP Signal PSD')
+#     plt.xlabel("Frequency (Hz)")
+#     plt.ylabel("Power Spectral Density")
+#     plt.title("Frequency Spectrum of COP Signal")
+#     plt.grid()
+#     plt.legend()
+#     plt.show()
+
 if __name__ == "__main__":
     print("Starting analysis...")
-    
+
+    # Analyze all subjects and process results
     results_df, cop_power_summary_df = analyze_all_subjects(BASE_PATH)
-    
+
     if not results_df.empty:
+        # Save the main results to an Excel file
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_{timestamp_str}.xlsx')
-        
+        output_file_path = os.path.join(OUTPUT_PATH, f'pcd_results_RamblingTrembling_{timestamp_str}.xlsx')
         results_df.to_excel(output_file_path, index=False)
-        
         print(f"Analysis completed successfully. Results saved to {output_file_path}.")
-        
-        # Compute and export mean/SD of trembling and rambling
+
+        # Compute and export mean and SD of trembling and rambling components
         mean_sd_df = compute_mean_sd_trembling_rambling(results_df)
-        export_mean_sd_to_excel(mean_sd_df, OUTPUT_PATH)
-        
-        # Export mean/SD of trembling and rambling integrated power
-        export_rambling_trembling_stats(results_df, OUTPUT_PATH)
-        
+        export_mean_sd_to_excel(mean_sd_df, output_dir=os.path.join(OUTPUT_PATH, "mean_sd_summary"))
+
     else:
         print("Analysis completed but no data was processed.")
 
     if not cop_power_summary_df.empty:
+        # Save the COP power summary to an Excel file
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         cop_power_summary_file_path = os.path.join(OUTPUT_PATH, f'PCD_cop_power_summary_{timestamp_str}.xlsx')
         cop_power_summary_df.to_excel(cop_power_summary_file_path, index=False)
         print(f"COP power summary saved to {cop_power_summary_file_path}.")
-        
+
         # Export COP frequency power summary to a separate Excel file
-        export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), OUTPUT_PATH)
-        
+        export_cop_frequency_power_summary(cop_power_summary_df.to_dict('records'), output_dir=os.path.join(OUTPUT_PATH, "cop_power_summary"))
+
     else:
         print("No COP power summary data was processed.")
